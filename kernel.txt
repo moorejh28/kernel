@@ -1,0 +1,176 @@
+; ****************************************************************
+; An Atari 2600 game kernel by Jason H. Moore, Ph.D.
+; Thanks to Andrew Davie, Darrel Spice, and many others who
+; provided numerous examples and tutorials that I learned from.
+; I used this kernel in my game GeneMedic at http//genemedic.org.
+; ****************************************************************
+
+; ****************************************************************
+; Tell the assembler we are working with the 6502 processor
+; ****************************************************************
+
+	PROCESSOR 6502
+
+; ****************************************************************
+; Include the vcs header file with the 2600 register and
+; memory map definitions. Also include the macro file that
+; has some useful functions such as 'sleep'.
+; ****************************************************************
+
+	INCLUDE VCS.h
+	INCLUDE macro.h
+
+; ****************************************************************
+; Constants set here. This makes code easier to read and is 
+; converted by assembler to actual values when compiled.
+; ****************************************************************
+
+CONSTANT = 1		; just an example
+
+; ****************************************************************
+; Tell the assembler the memory locations of our game variables.
+; ds is a pseudo-op for assembler that stands for 'define space'
+; ds 1 = one byte and ds 2 = two bytes. Remember that the 2600
+; only has 128 bytes of RAM!
+; ****************************************************************
+
+	SEG.U variables ; pseudo-op for the assembler
+   	ORG $80         ; the starting location of RAM
+
+VARIABLE	ds 1	; just an example
+
+
+; ****************************************************************
+; Tell the assembler where the origin (ORG) of the program is
+; ROM is memory location $F000 to $FFFF
+; ****************************************************************
+
+	SEG             ; pseudo-op to set current segment
+	ORG $F000       ; let the assembler know start address
+
+; ****************************************************************
+; This initializes the RAM and TIA registers by writing 0s.
+; It also initalizes the stack pointer to $FF. This code comes
+; from Andrew Davie's tutorial. Note just clearing the RAM did
+; not work well on the original 2600 hardware.
+; ****************************************************************
+
+Reset
+
+	ldx #0    	; load the X register with a 0
+	txa             ; transfer X to accumulator
+
+Clear
+
+	dex             ; decrement X register
+	txs             ; transfer X to stack pointer
+	pha             ; push accumulator onto stack
+	bne Clear       ; branch to Clear if accumulator != 0
+
+; ****************************************************************
+; The first part of a 2600 program is the vertical sync that
+; tells the TV to get ready to draw a picture. The CPU needs
+; to wait for three scanlines for the TV to get ready. This
+; is done with VSYNC to start this process and WSYNC (x2) to
+; wait for the scanlines to finish. Note that VSYNC and WSYNC
+; are defined in VCF.h
+; ****************************************************************
+
+VerticalSYNC       	   ; The start of the new frame 
+		   	   ; Main game loop starts here
+
+	lda #2     	   ; load the accumulator with a 2
+	sta VSYNC  	   ; store 2 in VSYNC memory to start
+
+	sta WSYNC  	   ; wait for scanline to finish
+	sta WSYNC  	   ; second WSYNC (need at least 2)
+	
+	lda #0     	   ; load the accumulator with a 0
+	sta VSYNC  	   ; store 0 in VSYNC memory to end
+
+; ****************************************************************
+; The second part of a 2600 program is the vertical blank
+; with an additional 37 scanlines of time before the screen
+; is actually drawn on the TV. Can do some game computations
+; here but must count the scanlines to add up to 37 total.
+; We will use the X register to count down from 37.
+; ****************************************************************
+
+	ldx #37		   ; load X register with 37
+
+VerticalBLANK              ; Vertical blank loop
+			   ; This burns the scanlines left over
+
+	sta WSYNC	   ; wait for scanline to finish
+
+	dex		   ; decrease X
+	cpx #0		   ; X = 0?
+	bne VerticalBLANK  ; loop if X != 0
+
+	sta VBLANK         ; store 0 in VBLANK memory to end
+                           ; and start drawing the picture by
+                           ; turning the TV beam on
+
+; ****************************************************************
+; The third part of a 2600 program is the screen drawing routine
+; that is often called the kernel. This is where the players,
+; missiles, and playfield are drawn. There are 192 scanlines to 
+; be drawn. We will use the X register to keep track of 192 
+; scanlines. To draw players and playfields you would read in data
+; for each scanline in the ScanlineLoop shown below. More on that 
+; later. Note that background color variable COLUBK is defined in 
+; VCF.h.
+; ****************************************************************
+
+	ldx #192           ; load X register with 192
+			   ; this is the first scanline at top
+			   ; of the screen
+
+ScanLineLoop
+
+	stx COLUBK	   ; set the background color
+	sta WSYNC	   ; wait for scanline to finish
+	
+	dex		   ; Decrease X
+	cpx #0		   ; X = 0?
+	bne ScanLineLoop   ; no, loop again and set next color
+
+; ****************************************************************
+; Finally, when the screen is done drawing it enters the overscan
+; where scanlines are off the visible screen at bottom. This goes
+; on for 30 scanlines. Can do some computation here if needed.
+; This is a good place to check for joystick movement, game reset
+; presses, and fire button presses. Can also trigger sounds here.
+; ****************************************************************
+
+	ldx #30            ; load X register with 37
+
+Overscan		   ; Overscan loop
+
+	sta WSYNC	   ; wait for scanline to finish
+
+	dex		   ; decrease X
+	cpx #0		   ; X = 0?
+	bne Overscan       ; loop if X != 0
+
+	jmp VerticalSYNC  ; start the entire process over!
+
+; ****************************************************************
+; This area can be used for game data and subroutines called
+; from above. Will provide some examples at a later time.
+; ****************************************************************
+
+; ****************************************************************
+; The Interrupts are used to help rescue the 6502 if it fails.
+; 2/3 are not used by the 6507 chip version used in the 2600.
+; ****************************************************************
+
+	ORG $FFFA         ; address for the interrupt vectors
+
+InterruptVectors
+
+	.word Reset          ; NMI
+	.word Reset          ; RESET
+	.word Reset          ; IRQ
+
+END
